@@ -73,7 +73,7 @@ docker restart frpc
 更多frp相关信息可参考我的博客
 - Blog [www.ioiox.com](https://www.ioiox.com)
 - GitHub [354770288/frpc](https://github.com/354770288/frpc)
-- Docker [354770288/frpc](https://hub.docker.com/r/354770288/frpc)
+- Docker [stilleshan/frpc](https://hub.docker.com/r/stilleshan/frpc)
 - 原版frp项目 [fatedier/frp](https://github.com/fatedier/frp)
 - [群晖NAS使用Docker安装配置frpc内网穿透教程](https://www.ioiox.com/archives/26.html) 
 - [群晖NAS安装配置免费frp内网穿透教程](https://www.ioiox.com/archives/6.html)
