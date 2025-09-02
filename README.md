@@ -3,7 +3,7 @@
 基于 [fatedier/frp](https://github.com/fatedier/frp) 原版 frp 内网穿透客户端 frpc 的一键安装卸载脚本和 docker 镜像.支持群晖NAS,Linux 服务器和 docker 等多种环境安装部署.
 
 - GitHub [354770288/frpc](https://github.com/354770288/frpc)
-- Docker [354770288/frpc](https://hub.docker.com/r/354770288/frpc)
+- Docker [354770288/frpc](https://hub.docker.com/r/stilleshan/frpc)
 > *docker image support for X86 and ARM*
 
 ## 更新
