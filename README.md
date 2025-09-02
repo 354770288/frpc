@@ -37,7 +37,7 @@ sudo systemctl restart frpc
 
 卸载
 ```shell
-wget https://raw.githubusercontent.com/354770288/frpc/master/frpc_linux_uninstall.sh && chmod +x frpc_linux_uninstall.sh && ./frpc_linux_uninstall.sh
+wget https://raw.githubusercontent.com/354770288/frpc/main/frpc_linux_uninstall.sh && chmod +x frpc_linux_uninstall.sh && ./frpc_linux_uninstall.sh
 ```
 
 ### Linux 服务器 docker 安装
@@ -45,7 +45,7 @@ wget https://raw.githubusercontent.com/354770288/frpc/master/frpc_linux_uninstal
 
 先 **git clone** 本仓库,并正确配置 **frpc.ini** 文件.
 ```shell
-git clone https://gitee.com/354770288/frpc.git
+git clone https://githu.com/354770288/frpc.git
 # git clone 本仓库 gitee 镜像
 vi /root/frpc/frpc.ini
 # 配置 frpc.ini 文件
