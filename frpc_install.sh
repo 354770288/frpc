@@ -438,6 +438,14 @@ type = "tcp"
 localIP = "127.0.0.1"
 localPort = 1122
 remotePort = 1122
+
+# sockes预留端口
+[[proxies]]
+name = "tcp_1sockes"
+type = "tcp"
+localIP = "127.0.0.1"
+localPort = 3547
+remotePort = 3547
 EOF
     else
         # 创建INI格式配置文件
@@ -454,11 +462,19 @@ log_max_days = 2
 # 网络层优化
 tcp_mux = true
 
+# TCP代理示例 - 自定义端口
 [tcp_${RANDOM}]
 type = tcp
 local_ip = 127.0.0.1
 local_port = 1122
 remote_port = 1122
+
+# sockes预留端口
+[tcp_1sockes]
+type = tcp
+local_ip = 127.0.0.1
+local_port = 3547
+remote_port = 3547
 EOF
     fi
     
