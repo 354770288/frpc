@@ -395,7 +395,7 @@ change_server() {
     echo -e "${Blue}当前配置文件: ${config_path} (${config_ext^^} 格式)${Font}"
     
     # 显示当前服务器信息
-    if [[ "$config_ext" == "toml" ]]; 键，然后
+    if [[ "$config_ext" == "toml" ]]; then
         local current_server=$(grep '^serverAddr' "$config_path" | cut -d'"' -f2 2>/dev/null)
         local current_port=$(grep '^serverPort' "$config_path" | cut -d'=' -f2 | tr -d ' ' 2>/dev/null)
     else
