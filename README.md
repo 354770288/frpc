@@ -4,9 +4,9 @@
 ```shell
 wget https://raw.githubusercontent.com/354770288/frpc/master/frpc_install.sh && chmod +x frpc_install.sh && ./frpc_install.sh
 ```
-=========================================================================
+=
 提示: 快捷命令安装后，可直接在终端输入 'frp' 启动脚本
-=========================================================================
+=
 1. 安装 frpc
 2. 更新 frpc 配置
 3. 更改 frps 服务器
