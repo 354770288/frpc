@@ -347,10 +347,10 @@ update_config() {
     
     case $config_choice in
         1)
-            if command -v vim > /dev/null; then
-                vim "$config_path"
-            elif command -v nano > /dev/null; then
+            if command -v nano > /dev/null; then
                 nano "$config_path"
+            elif command -v vim > /dev/null; then
+                vim "$config_path"
             else
                 echo -e "${Red}未找到文本编辑器！${Font}"
                 return 1
