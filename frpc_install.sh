@@ -39,19 +39,20 @@ show_menu() {
     echo -e "${Green}=========================================================================${Font}"
     echo -e "${Green}1.${Font} 安装 frpc"
     echo -e "${Green}2.${Font} 更新 frpc 配置"
-    echo -e "${Green}3.${Font} 重启 frpc"
-    echo -e "${Green}4.${Font} 查看 frpc 状态"
-    echo -e "${Green}5.${Font} 查看 frpc 配置"
-    echo -e "${Green}6.${Font} 卸载 frpc"
-    echo -e "${Green}7.${Font} 安装快捷命令 (frp)"
-    echo -e "${Green}8.${Font} 卸载快捷命令"
+    echo -e "${Green}3.${Font} 更改 frps 服务器"
+    echo -e "${Green}4.${Font} 重启 frpc"
+    echo -e "${Green}5.${Font} 查看 frpc 状态"
+    echo -e "${Green}6.${Font} 查看 frpc 配置"
+    echo -e "${Green}7.${Font} 卸载 frpc"
+    echo -e "${Green}8.${Font} 安装快捷命令 (frp)"
+    echo -e "${Green}9.${Font} 卸载快捷命令"
     echo -e "${Green}0.${Font} 退出脚本"
     echo -e "${Green}=========================================================================${Font}"
     if [ -f "$SHORTCUT_PATH" ]; then
         echo -e "${Blue}提示: 快捷命令已安装，可直接在终端输入 'frp' 启动脚本${Font}"
         echo -e "${Green}=========================================================================${Font}"
     fi
-    echo -n -e "${Yellow}请选择操作 [0-8]: ${Font}"
+    echo -n -e "${Yellow}请选择操作 [0-9]: ${Font}"
 }
 
 # 验证版本号格式
@@ -138,6 +139,119 @@ get_existing_config_path() {
     else
         echo ""
     fi
+}
+
+# 更改frps服务器地址
+change_frps_server() {
+    echo -e "${Green}=========================================================================${Font}"
+    echo -e "${YellowBG}                         更改 FRPS 服务器                               ${Font}"
+    echo -e "${Green}=========================================================================${Font}"
+    
+    if ! check_installed; then
+        echo -e "${Red}frpc 未安装，请先安装！${Font}"
+        echo -n -e "${Yellow}按任意键返回主菜单...${Font}"
+        read -n 1
+        return
+    fi
+    
+    CONFIG_PATH=$(get_existing_config_path)
+    
+    if [ -z "$CONFIG_PATH" ]; then
+        echo -e "${Red}配置文件不存在！${Font}"
+        echo -n -e "${Yellow}按任意键返回主菜单...${Font}"
+        read -n 1
+        return
+    fi
+    
+    CONFIG_EXT="${CONFIG_PATH##*.}"
+    
+    echo -e "${Blue}当前配置文件: ${CONFIG_PATH} (${CONFIG_EXT^^} 格式)${Font}"
+    
+    # 显示当前服务器地址
+    if [ "$CONFIG_EXT" = "toml" ]; then
+        CURRENT_SERVER=$(grep '^serverAddr' "$CONFIG_PATH" | cut -d'"' -f2 2>/dev/null)
+        if [ -z "$CURRENT_SERVER" ]; then
+            CURRENT_SERVER=$(grep '^serverAddr' "$CONFIG_PATH" | cut -d'=' -f2 | tr -d ' "' 2>/dev/null)
+        fi
+    else
+        CURRENT_SERVER=$(grep '^server_addr' "$CONFIG_PATH" | cut -d'=' -f2 | tr -d ' ' 2>/dev/null)
+    fi
+    
+    if [ -n "$CURRENT_SERVER" ]; then
+        echo -e "${Blue}当前服务器地址: ${Yellow}$CURRENT_SERVER${Font}"
+    else
+        echo -e "${Yellow}未能获取当前服务器地址${Font}"
+    fi
+    
+    # 输入新的服务器地址
+    echo -n -e "${Yellow}请输入新的 frps 服务器地址: ${Font}"
+    read -r NEW_SERVER
+    
+    if [ -z "$NEW_SERVER" ]; then
+        echo -e "${Red}服务器地址不能为空！${Font}"
+        echo -n -e "${Yellow}按任意键返回主菜单...${Font}"
+        read -n 1
+        return
+    fi
+    
+    # 备份配置文件
+    cp "$CONFIG_PATH" "${CONFIG_PATH}.backup.$(date +%Y%m%d_%H%M%S)"
+    echo -e "${Blue}已备份原配置文件${Font}"
+    
+    # 更新配置文件
+    if [ "$CONFIG_EXT" = "toml" ]; then
+        # TOML格式
+        if grep -q '^serverAddr' "$CONFIG_PATH"; then
+            sed -i "s|^serverAddr = .*|serverAddr = \"$NEW_SERVER\"|" "$CONFIG_PATH"
+        else
+            echo -e "${Red}配置文件中未找到 serverAddr 配置项${Font}"
+            echo -n -e "${Yellow}按任意键返回主菜单...${Font}"
+            read -n 1
+            return
+        fi
+    else
+        # INI格式
+        if grep -q '^server_addr' "$CONFIG_PATH"; then
+            sed -i "s|^server_addr = .*|server_addr = $NEW_SERVER|" "$CONFIG_PATH"
+        else
+            echo -e "${Red}配置文件中未找到 server_addr 配置项${Font}"
+            echo -n -e "${Yellow}按任意键返回主菜单...${Font}"
+            read -n 1
+            return
+        fi
+    fi
+    
+    echo -e "${Green}frps 服务器地址已更新为: ${Yellow}$NEW_SERVER${Font}"
+    
+    # 重启frpc服务
+    echo -e "${Blue}正在重启 frpc 服务...${Font}"
+    systemctl restart ${FRP_NAME}
+    
+    if [ $? -eq 0 ]; then
+        echo -e "${Green}frpc 服务重启成功！${Font}"
+    else
+        echo -e "${Red}frpc 服务重启失败！${Font}"
+    fi
+    
+    # 延迟5秒后查看日志
+    echo -e "${Blue}等待 5 秒后查看 frpc 日志...${Font}"
+    sleep 5
+    
+    LOG_PATH="/usr/local/frp/frpc.log"
+    if [ -f "$LOG_PATH" ]; then
+        echo -e "${Green}=========================================================================${Font}"
+        echo -e "${Blue}FRPC 日志内容 (最新 20 行):${Font}"
+        echo -e "${Green}=========================================================================${Font}"
+        tail -n 20 "$LOG_PATH"
+        echo -e "${Green}=========================================================================${Font}"
+    else
+        echo -e "${Yellow}日志文件 $LOG_PATH 不存在${Font}"
+        echo -e "${Blue}尝试查看系统日志:${Font}"
+        journalctl -u ${FRP_NAME} -n 10 --no-pager
+    fi
+    
+    echo -n -e "${Yellow}按任意键返回主菜单...${Font}"
+    read -n 1
 }
 
 # 安装快捷命令
@@ -562,21 +676,24 @@ main() {
                 update_config
                 ;;
             3)
-                restart_frpc
+                change_frps_server
                 ;;
             4)
-                check_status
+                restart_frpc
                 ;;
             5)
-                view_config
+                check_status
                 ;;
             6)
-                uninstall_frpc
+                view_config
                 ;;
             7)
-                install_shortcut
+                uninstall_frpc
                 ;;
             8)
+                install_shortcut
+                ;;
+            9)
                 uninstall_shortcut
                 ;;
             0)
