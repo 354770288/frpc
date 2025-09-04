@@ -74,6 +74,12 @@ serverAddr = "your.frp.server.com"
 serverPort = 7000
 # auth.token = "your_token_here"
 
+# 优化配置
+transport.tcpMux = true
+log.to = "./frpc.log"
+log.level = "trace"
+log.maxDays = 2
+
 # TCP代理示例
 [[proxies]]
 name = "tcp_example"
@@ -81,12 +87,6 @@ type = "tcp"
 localIP = "127.0.0.1"
 localPort = 1122
 remotePort = 1122
-
-# 优化配置
-transport.tcpMux = true
-log.to = "./frpc.log"
-log.level = "trace"
-log.maxDays = 2
 ```
 
 ### INI 格式 (frp < 0.52.0)
