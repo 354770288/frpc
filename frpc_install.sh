@@ -319,21 +319,12 @@ localIP = "127.0.0.1"
 localPort = 1122
 remotePort = 1122
 
-# 配置日志
-log.to = "./frpc.log"
-log.level = "info"
-log.maxDays = 3
-
-# 网络层优化
 # 优化 TCP 传输性能
 transport.tcpMux = true                   # TCP多路复用，减少连接消耗
-transport.tcpMuxKeepaliveInterval = 60   # Mux心跳时间，避免连接超时关闭
-transport.maxPoolCount = 5                # 连接池数量，提升短连接处理能力
-transport.tcpKeepalive = 60               # TCP KeepAlive心跳间隔
-transport.protocol = "kcp"                # 协议选择，KCP提升丢包网络表现
-transport.useCompression = true           # 数据压缩，减少传输带宽
-transport.compressionLevel = 5            # 压缩级别
-transport.useEncryption = true            # 启用加密，保障数据安全
+# 配置日志
+log.to = "./frpc.log"
+log.level = "trace"
+log.maxDays = 2
 
 EOF
     else
@@ -344,19 +335,18 @@ server_addr = your.frp.server.com
 server_port = 7000
 # token = your_token_here
 
+# 配置日志
+log_file = ./frpc.log
+log_level = trace
+log_max_days = 2
+# 网络层优化
+tcp_mux = true
+
 [tcp_${RANDOM}]
 type = tcp
 local_ip = 127.0.0.1
 local_port = 1122
 remote_port = 1122
-
-# 配置日志
-log_file = ./frpc.log
-log_level = info
-log_max_days = 3
-
-# 网络层优化
-tcp_mux = true
 EOF
     fi
     
