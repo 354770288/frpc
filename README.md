@@ -1,209 +1,301 @@
-# FRPC 管理脚本
+# frpc 一键管理脚本（优化版）
 
-一个功能完整的 FRPC (Fast Reverse Proxy Client) 管理脚本，支持自动安装、配置和管理 frpc 服务。
+> 支持自动版本识别（TOML / INI）、预配置连通性测试端口、快捷命令、服务管理、配置重建、快速排障。
 
-## 功能特性
+---
 
-- 🚀 **一键安装**: 自动下载并安装指定版本的 frpc
-- 🔧 **配置管理**: 支持编辑和更新 frpc 配置文件
-- 🔄 **版本兼容**: 自动识别并支持 INI (< 0.52.0) 和 TOML (>= 0.52.0) 配置格式
-- 🏗️ **架构支持**: 自动检测系统架构 (x86_64/aarch64)
-- 🎛️ **服务管理**: 启动、停止、重启和查看 frpc 服务状态
-- 📝 **日志监控**: 查看和监控 frpc 运行日志
-- 🔗 **快捷命令**: 安装全局快捷命令，随时随地管理 frpc
-- 🛡️ **安全卸载**: 完整清理 frpc 相关文件和服务
+## ✨ 功能概览
 
-## 系统要求
+| 功能 | 菜单项 | 说明 |
+|------|--------|------|
+| 安装 frpc | 1 | 自动检测系统架构、获取版本、下载并创建 systemd 服务，预配置 3547 测试端口 |
+| 更新 frpc 配置 | 2 | 编辑或重新生成配置文件（保留 3547 端口） |
+| 更改 frps 服务器 | 3 | 直接修改 serverAddr / server_addr 与端口 |
+| 重启 frpc 服务 | 4 | 优雅重启并显示状态 |
+| 查看 frpc 状态 | 5 | 展示 systemd 状态 + 最近 10 行日志 |
+| 查看配置文件 | 6 | 输出当前配置内容 |
+| 连通性测试（新） | 7 | 复用现有配置，通过预设 3547 端口测试访问外网 |
+| 卸载 frpc | 8 | 完整卸载（含服务与目录） |
+| 安装快捷命令 | 9 | 安装全局 `frp` 命令 |
+| 卸载快捷命令 | 10 | 移除全局命令 |
+| 退出 | 0 | 退出脚本 |
 
-- Linux 系统 (支持 systemd)
-- Root 权限
-- 网络连接 (用于下载 frp 安装包)
-- 支持的架构: x86_64 (amd64) 或 aarch64 (arm64)
+---
 
-## 快速开始
-
-### 下载脚本
+## 🚀 快速开始
 
 ```bash
-wget https://raw.githubusercontent.com/354770288/frpc/main/frpc_install.sh
+# 下载脚本
+curl -O https://raw.githubusercontent.com/354770288/frpc/main/frpc_install.sh
 chmod +x frpc_install.sh
-```
 
-### 运行脚本
-
-```bash
+# 运行（需 root）
 sudo ./frpc_install.sh
 ```
 
-## 功能菜单
-
-脚本提供直观的菜单界面，包含以下功能：
-
-1. **安装 frpc** - 下载并安装指定版本的 frpc
-2. **更新 frpc 配置** - 使用编辑器修改配置文件
-3. **更改 frps 服务器** - 快速修改服务器地址
-4. **重启 frpc** - 重启 frpc 服务
-5. **查看 frpc 状态** - 显示服务状态和运行信息
-6. **查看 frpc 配置** - 显示当前配置文件内容
-7. **卸载 frpc** - 完全移除 frpc 及相关文件
-8. **安装快捷命令** - 安装全局 `frp` 命令
-9. **卸载快捷命令** - 移除全局快捷命令
-
-## 目录结构
-
-```
-/usr/local/frp/
-├── frpc                 # frpc 可执行文件
-├── frpc.ini/.toml      # 配置文件 (取决于版本)
-└── frpc.log            # 日志文件
-
-/lib/systemd/system/
-└── frpc.service        # systemd 服务文件
-
-/usr/local/bin/
-└── frp                 # 快捷命令 (可选)
+或者安装快捷命令后直接运行：
+```bash
+sudo ./frpc_install.sh 9   # 安装快捷命令
+frp                      # 打开菜单
 ```
 
-## 配置文件格式
+---
 
-### TOML 格式 (frp >= 0.52.0)
+## 🧠 智能特性
 
+- 自动判断当前 frp 版本是否使用 **TOML（v0.52.0+）** 或 **INI（旧版本）**
+- 安装时自动创建对应格式配置文件
+- 预置连通性测试代理条目（remotePort = 3547）
+- 支持通过参数非交互调用（便于脚本集成 / 运维批量化）
+
+---
+
+## 🧩 支持的快捷参数调用
+
+| 命令 | 等价菜单 | 示例 |
+|------|----------|------|
+| frp install | 1 | `frp install` |
+| frp config | 2 | `frp config` |
+| frp server | 3 | `frp server` |
+| frp restart | 4 | `frp restart` |
+| frp status | 5 | `frp status` |
+| frp view | 6 | `frp view` |
+| frp test | 7 | `frp test` |
+| frp uninstall | 8 | `frp uninstall` |
+| frp shortcut | 9 | `frp shortcut` |
+| frp unshortcut | 10 | `frp unshortcut` |
+
+> 未安装快捷命令时可用：`./frpc_install.sh test` 等
+
+---
+
+## 🛠 配置文件说明
+
+### 1. TOML（frp v0.52.0+）
+
+安装后生成示例：
 ```toml
-# frpc.toml
 serverAddr = "your.frp.server.com"
 serverPort = 7000
 # auth.token = "your_token_here"
 
-# 优化配置
 transport.tcpMux = true
+transport.poolCount = 1
+
 log.to = "./frpc.log"
 log.level = "trace"
 log.maxDays = 2
 
-# TCP代理示例
 [[proxies]]
-name = "tcp_example"
+name = "tcp_xxxxx"
 type = "tcp"
 localIP = "127.0.0.1"
 localPort = 1122
 remotePort = 1122
+
+[[proxies]]
+name = "connectivity_test_3547"
+type = "tcp"
+localIP = "127.0.0.1"
+localPort = 3547
+remotePort = 3547
 ```
 
-### INI 格式 (frp < 0.52.0)
+### 2. INI（旧版 < v0.52.0）
 
 ```ini
 [common]
 server_addr = your.frp.server.com
 server_port = 7000
 # token = your_token_here
-
 log_file = ./frpc.log
 log_level = trace
 log_max_days = 2
 tcp_mux = true
 
-[tcp_example]
+[tcp_xxxxx]
 type = tcp
 local_ip = 127.0.0.1
 local_port = 1122
 remote_port = 1122
+
+[connectivity_test_3547]
+type = tcp
+local_ip = 127.0.0.1
+local_port = 3547
+remote_port = 3547
 ```
 
-## 使用示例
+### 添加新代理（示例）
 
-### 安装 frpc
+TOML：
+```toml
+[[proxies]]
+name = "web_8080"
+type = "tcp"
+localIP = "127.0.0.1"
+localPort = 8080
+remotePort = 18080
+```
 
-1. 运行脚本选择 `1` 安装 frpc
-2. 输入版本号，如 `0.54.0` 或 `0.38.0`
-3. 脚本自动下载、安装并配置服务
+INI：
+```ini
+[web_8080]
+type = tcp
+local_ip = 127.0.0.1
+local_port = 8080
+remote_port = 18080
+```
 
-### 配置 frpc
+---
 
-1. 选择 `2` 更新配置
-2. 使用编辑器修改配置文件
-3. 保存后选择重启服务使配置生效
+## 🌐 连通性测试（选项 7）
 
-### 快速更改服务器
+测试目标：验证 frpc 是否成功连上 frps 且链路可透传访问外网。
 
-1. 选择 `3` 更改 frps 服务器
-2. 输入新的服务器地址
-3. 脚本自动更新配置并重启服务
+流程包括：
+1. 检查服务是否运行
+2. 确认配置文件是否包含 3547 代理
+3. 启动本地 SOCKS5 测试（端口 3547）
+4. 通过 `curl --socks5 <frps>:3547 https://www.google.com/` 验证可达性
+5. 输出延迟 / HTTP 状态 / 连接阶段结果
+6. 自动清理测试进程
 
-## 快捷命令
+成功输出示例：
+```
+✓ 连通性测试成功！
+✓ frpc 与 frps 服务器连接正常
+✓ 可以正常通过代理访问外部网站
+```
 
-安装快捷命令后，可以在任何目录使用：
+失败常见错误：
+| 错误码 | 说明 | 处理建议 |
+|--------|------|----------|
+| 7 | 连接被拒绝 | 检查 frps 是否放行 3547 |
+| 28/124 | 超时 | 网络丢包 / frps 未响应 |
+| 56 | 连接中断 | 中间链路被重置（可能是防火墙） |
+
+> 注意：frps 端需要放行 remotePort=3547（或在防火墙中开放），否则测试无意义。
+
+---
+
+## 🔄 重新生成配置
+
+如果配置损坏或想恢复初始模板：
+```
+frp config   # 选择“2. 重新生成配置文件”
+```
+然后编辑：
+```
+vim /usr/local/frp/frpc.toml   # 或 frpc.ini
+systemctl restart frpc
+```
+
+---
+
+## 🧪 常用命令速查
 
 ```bash
-# 启动管理界面
-frp
+# 安装最新版
+frp install
 
-# 以管理员权限启动
-sudo frp
+# 指定版本（交互选择输入）
+frp install
+
+# 查看服务状态
+frp status
+
+# 快速查看日志
+journalctl -u frpc -n 30 --no-pager
+
+# 重启
+frp restart
+
+# 连通性测试
+frp test
+
+# 卸载
+frp uninstall
 ```
 
-## 服务管理
+---
 
-### 使用 systemctl 命令
+## 🧹 卸载
 
 ```bash
-# 启动服务
-sudo systemctl start frpc
-
-# 停止服务
-sudo systemctl stop frpc
-
-# 重启服务
-sudo systemctl restart frpc
-
-# 查看状态
-sudo systemctl status frpc
-
-# 开机自启
-sudo systemctl enable frpc
-
-# 禁用自启
-sudo systemctl disable frpc
-
-# 查看日志
-sudo journalctl -u frpc -f
+frp uninstall
+# 移除快捷方式（如已安装）
+frp unshortcut
 ```
 
-## 故障排除
+卸载会删除：
+- /usr/local/frp/
+- systemd 服务文件 /etc/systemd/system/frpc.service
 
-### 常见问题
+---
 
-1. **权限问题**: 确保使用 `sudo` 运行脚本
-2. **网络问题**: 检查网络连接，确保能访问 GitHub
-3. **版本问题**: 确认输入的版本号格式正确 (如: 0.54.0)
-4. **架构问题**: 脚本自动检测，目前支持 x86_64 和 aarch64
+## 🔐 安全建议
 
-### 日志查看
+| 项目 | 建议 |
+|------|------|
+| token / auth | 必须启用（生产环境） |
+| 日志级别 | trace 仅用于调试，上线改为 info 或 warning |
+| remotePort | 避免使用易扫描的 80/22 等敏感端口 |
+| 文件权限 | 配置可限制为 600 并设定运行用户 |
+| 防火墙 | 仅放行必要的 remotePort / server_port |
 
-```bash
-# 查看 frpc 日志文件
-sudo tail -f /usr/local/frp/frpc.log
+---
 
-# 查看系统服务日志
-sudo journalctl -u frpc -n 50
-```
+## 🛠 故障排查
 
-## 注意事项
+| 现象 | 排查建议 |
+|------|----------|
+| 服务无法启动 | `systemctl status frpc` + `journalctl -u frpc -n 50` |
+| 连通性测试失败 | 确认 frps 放行 3547 / frps 端是否有对应配置 |
+| 配置不生效 | 修改后是否重启：`systemctl restart frpc` |
+| 版本不兼容 | 确认当前 frp 版本：`/usr/local/frp/frpc --version` |
+| 高延迟 | 检查网络 RTT / 关闭不必要的 proxies |
 
-- 脚本需要 root 权限运行
-- 安装前会自动检查并提示卸载现有版本
-- 配置文件修改后需要重启服务才能生效
-- 卸载操作会删除所有相关文件，请谨慎操作
-- 建议在修改配置前备份原配置文件
+---
 
-## 贡献
+## 🧾 版本检测逻辑
 
-欢迎提交 Issue 和 Pull Request 来改进这个脚本。
+脚本通过解析 frpc 版本号：
+- 当版本号 >= v0.52.0 使用 TOML
+- 否则使用 INI
+- 重新生成配置会保留检测逻辑
 
-## 许可证
+---
 
-本项目采用开源许可证，详情请查看仓库中的 LICENSE 文件。
+## 🤝 贡献
 
-## 相关链接
+欢迎提交：
+- 脚本改进
+- 新功能建议
+- Bug 反馈
 
-- [FRP 官方仓库](https://github.com/fatedier/frp)
-- [FRP 官方文档](https://gofrp.org/)
+Fork 项目后 PR 或直接开 Issue。
+
+---
+
+## 📄 许可证
+
+本脚本遵循 MIT License（若需可添加 LICENSE 文件）。
+
+---
+
+## 📝 变更记录（简述）
+
+| 日期 | 更新内容 |
+|------|----------|
+| 2025-01-14 | 增加连通性测试、端口预配置、快捷命令、版本识别 |
+| 2025-01-14 | 优化服务管理、交互提示与错误处理 |
+
+---
+
+## 🔚 结语
+
+如果该脚本对你有帮助，欢迎 Star 支持一下！
+问题反馈 / 功能建议：直接提交 Issue。
+
+祝使用愉快 🛠️
