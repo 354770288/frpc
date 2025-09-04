@@ -424,6 +424,12 @@ serverAddr = "your.frp.server.com"
 serverPort = 7000
 # auth.token = "your_token_here"
 
+# 优化 TCP 传输性能
+transport.tcpMux = true                   # TCP多路复用，减少连接消耗
+# 配置日志
+log.to = "./frpc.log"
+log.level = "trace"
+log.maxDays = 2
 
 # TCP代理示例 - 自定义端口
 [[proxies]]
@@ -432,14 +438,6 @@ type = "tcp"
 localIP = "127.0.0.1"
 localPort = 1122
 remotePort = 1122
-
-# 优化 TCP 传输性能
-transport.tcpMux = true                   # TCP多路复用，减少连接消耗
-# 配置日志
-log.to = "./frpc.log"
-log.level = "trace"
-log.maxDays = 2
-
 EOF
     else
         # 创建INI格式配置文件
