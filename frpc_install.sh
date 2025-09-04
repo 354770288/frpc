@@ -57,7 +57,7 @@ show_menu() {
 # 验证版本号格式
 validate_version() {
     local version=$1
-    if [[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    if [[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; 键，然后
         return 0
     else
         echo -e "${Red}版本号格式错误！请使用 x.xx.x 格式（如：0.38.0）${Font}"
