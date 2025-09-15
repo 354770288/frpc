@@ -1,846 +1,813 @@
 #!/bin/bash
 
-# frpc一键安装脚本 - 优化版
-# 支持连通性测试和端口预配置
-# Author: 354770288
-# Date: 2025-01-14
+# frpc一键安装脚本 - 适用于Debian系统
+# 作者: 自动生成
+# 版本: 1.0
+# 描述: 支持多实例frpc服务的安装、管理和配置
 
-PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin:~/bin
-export PATH
+set -e
 
 # 颜色定义
-Red="\033[31m"
-Green="\033[32m"
-Yellow="\033[33m"
-Blue="\033[36m"
-Font="\033[0m"
-GreenBG="\033[42;37m"
-RedBG="\033[41;37m"
-YellowBG="\033[43;37m"
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
 
 # 全局变量
-FRP_NAME="frpc"
-FRP_PATH="/usr/local/frp"
+FRP_BASE_DIR="/usr/local/frp"
+GITHUB_API="https://api.github.com/repos/fatedier/frp/releases"
+GLOBAL_COMMAND_PATH="/usr/local/bin/frp"
 
-# 检测系统架构
-check_sys() {
-    if [[ -f /etc/redhat-release ]]; then
-        release="centos"
-    elif grep -q -E -i "debian" /etc/issue; then
-        release="debian"
-    elif grep -q -E -i "ubuntu" /etc/issue; then
-        release="ubuntu"
-    elif grep -q -E -i "centos|red hat|redhat" /etc/issue; then
-        release="centos"
-    elif grep -q -E -i "debian" /proc/version; then
-        release="debian"
-    elif grep -q -E -i "ubuntu" /proc/version; then
-        release="ubuntu"
-    elif grep -q -E -i "centos|red hat|redhat" /proc/version; then
-        release="centos"
+# 日志函数
+log_info() {
+    echo -e "${GREEN}[INFO]${NC} $1"
+}
+
+log_warn() {
+    echo -e "${YELLOW}[WARN]${NC} $1"
+}
+
+log_error() {
+    echo -e "${RED}[ERROR]${NC} $1"
+}
+
+log_blue() {
+    echo -e "${BLUE}[INFO]${NC} $1"
+}
+
+# 检查是否为root用户
+check_root() {
+    if [[ $EUID -ne 0 ]]; then
+        log_error "此脚本需要root权限运行"
+        exit 1
     fi
-    
-    bit=$(uname -m)
-    case $bit in
-        x86_64) bit="amd64" ;;
-        aarch64) bit="arm64" ;;
-        armv7l) bit="arm" ;;
-        *) echo -e "${Red}不支持的系统架构: $bit${Font}"; exit 1 ;;
+}
+
+# 检查系统架构
+detect_arch() {
+    local arch=$(uname -m)
+    case $arch in
+        x86_64)
+            echo "amd64"
+            ;;
+        aarch64|arm64)
+            echo "arm64"
+            ;;
+        armv7l)
+            echo "arm"
+            ;;
+        *)
+            log_error "不支持的系统架构: $arch"
+            exit 1
+            ;;
     esac
 }
 
-# 安装依赖
-install_deps() {
-    if [[ ${release} == "centos" ]]; then
-        yum update -y && yum install curl wget tar -y
+# 检查系统类型
+detect_os() {
+    if [[ -f /etc/debian_version ]]; then
+        echo "linux"
     else
-        apt update -y && apt install curl wget tar -y
+        log_error "此脚本仅支持Debian系统"
+        exit 1
     fi
 }
 
-# 获取最新版本号
-get_latest_version() {
-    local latest_version=$(curl -s "https://api.github.com/repos/fatedier/frp/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
-    if [[ -z "$latest_version" ]]; then
-        latest_version="v0.58.1"  # 备用版本
-    fi
-    echo "$latest_version"
+# 获取frp版本列表
+get_frp_versions() {
+    curl -s "$GITHUB_API" | grep -o '"tag_name": "[^"]*"' | sed 's/"tag_name": "//g' | sed 's/"//g' | head -10
 }
 
-# 判断是否为TOML版本
-is_toml_version() {
+# 下载frp
+download_frp() {
     local version=$1
-    version=${version#v}  # 移除v前缀
+    local arch=$2
+    local os=$3
     
-    # 提取主版本号和次版本号
-    local major=$(echo "$version" | cut -d. -f1)
-    local minor=$(echo "$version" | cut -d. -f2)
+    # 移除版本号中的v前缀用于文件名
+    local version_no_v=${version#v}
+    local filename="frp_${version_no_v}_${os}_${arch}.tar.gz"
+    local download_url="https://github.com/fatedier/frp/releases/download/${version}/${filename}"
+    local temp_dir="/tmp/frp_download_$$"
+    local current_dir=$(pwd)
     
-    # v0.52.0及以上版本使用TOML
-    if [ "$major" -gt 0 ] || ([ "$major" -eq 0 ] && [ "$minor" -ge 52 ]); then
-        return 0  # true
-    else
-        return 1  # false
+    log_info "开始下载 frp ${version}..." >&2
+    
+    # 创建临时目录
+    if ! mkdir -p "$temp_dir"; then
+        log_error "无法创建临时目录: $temp_dir" >&2
+        return 1
     fi
+    
+    # 进入临时目录
+    if ! cd "$temp_dir"; then
+        log_error "无法进入临时目录: $temp_dir" >&2
+        rm -rf "$temp_dir"
+        return 1
+    fi
+    
+    # 下载文件
+    log_info "正在下载 frp ${version}..." >&2
+    log_info "下载地址: $download_url" >&2
+    
+    # 尝试wget下载
+    if wget -q --show-progress "$download_url" >&2; then
+        log_info "wget下载成功" >&2
+    # 如果wget失败，尝试curl
+    elif curl -L -o "$filename" "$download_url" >&2; then
+        log_info "curl下载成功" >&2
+    else
+        log_error "下载失败，请检查网络连接" >&2
+        log_error "尝试的下载地址: $download_url" >&2
+        cd "$current_dir"
+        rm -rf "$temp_dir"
+        return 1
+    fi
+    
+    # 检查下载的文件是否存在
+    if [[ ! -f "$filename" ]]; then
+        log_error "下载的文件不存在: $filename" >&2
+        cd "$current_dir"
+        rm -rf "$temp_dir"
+        return 1
+    fi
+    
+    log_info "下载完成" >&2
+    
+    # 解压文件
+    log_info "正在解压..." >&2
+    if ! tar -xzf "$filename" >&2; then
+        log_error "解压失败" >&2
+        cd "$current_dir"
+        rm -rf "$temp_dir"
+        return 1
+    fi
+    
+    # 检查解压目录和文件
+    local extract_dir="frp_${version_no_v}_${os}_${arch}"
+    if [[ ! -d "$extract_dir" ]]; then
+        log_error "解压失败，找不到目录: $extract_dir" >&2
+        cd "$current_dir"
+        rm -rf "$temp_dir"
+        return 1
+    fi
+    
+    if [[ ! -f "$extract_dir/frpc" ]]; then
+        log_error "找不到frpc可执行文件" >&2
+        cd "$current_dir"
+        rm -rf "$temp_dir"
+        return 1
+    fi
+    
+    log_info "解压成功" >&2
+    cd "$current_dir"
+    echo "$temp_dir/$extract_dir"
 }
 
-# 获取配置文件扩展名
-get_config_extension() {
-    local version=$1
-    if is_toml_version "$version"; then
-        echo "toml"
-    else
-        echo "ini"
-    fi
+# 生成随机5位数字
+generate_random_suffix() {
+    printf "%05d" $((RANDOM % 100000))
 }
 
-# 获取现有配置文件路径
-get_existing_config_path() {
-    if [ -f "${FRP_PATH}/${FRP_NAME}.toml" ]; then
-        echo "${FRP_PATH}/${FRP_NAME}.toml"
-    elif [ -f "${FRP_PATH}/${FRP_NAME}.ini" ]; then
-        echo "${FRP_PATH}/${FRP_NAME}.ini"
-    else
-        echo ""
-    fi
-}
-
-# 创建配置文件（优化版 - 预配置3547端口）
-create_config() {
-    local version=$1
-    local config_ext=$(get_config_extension "$version")
+# 创建默认配置文件
+create_default_config() {
+    local service_name=$1
+    local config_file="$FRP_BASE_DIR/$service_name/frpc.toml"
+    local random_suffix=$(generate_random_suffix)
     
-    echo -e "${Blue}正在创建 ${config_ext^^} 格式配置文件...${Font}"
-    
-    if is_toml_version "$version"; then
-        # 创建TOML格式配置文件
-        cat >${FRP_PATH}/${FRP_NAME}.toml <<EOF
-# frpc.toml
+    cat > "$config_file" << EOF
 serverAddr = "your.frp.server.com"
 serverPort = 7000
 # auth.token = "your_token_here"
 
-# 优化 TCP 传输性能
 transport.tcpMux = true
-transport.poolCount = 1
+# transport.poolCount = 1
 
-# 配置日志
 log.to = "./frpc.log"
 log.level = "trace"
 log.maxDays = 2
 
-# TCP代理示例 - 自定义端口
 [[proxies]]
-name = "tcp_${RANDOM}"
+name = "tcp_$random_suffix"
 type = "tcp"
 localIP = "127.0.0.1"
 localPort = 1122
 remotePort = 1122
-
-# 连通性测试专用端口 - 预配置 3547
-[[proxies]]
-name = "connectivity_test_3547"
-type = "tcp"
-localIP = "127.0.0.1"
-localPort = 3547
-remotePort = 3547
 EOF
-    else
-        # 创建INI格式配置文件
-        cat >${FRP_PATH}/${FRP_NAME}.ini <<EOF
-[common]
-server_addr = your.frp.server.com
-server_port = 7000
-# token = your_token_here
-
-# 配置日志
-log_file = ./frpc.log
-log_level = trace
-log_max_days = 2
-# 网络层优化
-tcp_mux = true
-
-[tcp_${RANDOM}]
-type = tcp
-local_ip = 127.0.0.1
-local_port = 1122
-remote_port = 1122
-
-# 连通性测试专用端口 - 预配置 3547
-[connectivity_test_3547]
-type = tcp
-local_ip = 127.0.0.1
-local_port = 3547
-remote_port = 3547
-EOF
-    fi
     
-    echo -e "${Green}✓ 已创建 ${config_ext^^} 格式配置文件，包含连通性测试端口 3547${Font}"
+    log_info "已创建默认配置文件: $config_file"
 }
 
-# 下载frpc
-download_frpc() {
-    local version=$1
+# 创建systemd服务文件
+create_systemd_service() {
+    local service_name=$1
+    local service_file="/etc/systemd/system/frpc-${service_name}.service"
     
-    echo -e "${Blue}开始下载 frpc ${version}...${Font}"
-    
-    # 构建下载URL
-    local download_url="https://github.com/fatedier/frp/releases/download/${version}/frp_${version#v}_linux_${bit}.tar.gz"
-    local tmp_file="/tmp/frp_${version#v}_linux_${bit}.tar.gz"
-    
-    # 下载文件
-    if ! wget -O "$tmp_file" "$download_url"; then
-        echo -e "${Red}下载失败！${Font}"
-        return 1
-    fi
-    
-    # 创建目录
-    mkdir -p "$FRP_PATH"
-    
-    # 解压
-    if ! tar -xzf "$tmp_file" -C /tmp/; then
-        echo -e "${Red}解压失败！${Font}"
-        return 1
-    fi
-    
-    # 复制文件
-    local extract_dir="/tmp/frp_${version#v}_linux_${bit}"
-    cp "${extract_dir}/${FRP_NAME}" "${FRP_PATH}/"
-    chmod +x "${FRP_PATH}/${FRP_NAME}"
-    
-    # 清理临时文件
-    rm -f "$tmp_file"
-    rm -rf "$extract_dir"
-    
-    echo -e "${Green}✓ frpc 下载完成${Font}"
-    return 0
-}
-
-# 创建systemd服务
-create_service() {
-    local config_path="$1"
-    
-    cat >/etc/systemd/system/${FRP_NAME}.service <<EOF
+    cat > "$service_file" << EOF
 [Unit]
-Description=Frp client service
+Description=frp client service ($service_name)
 After=network.target
 
 [Service]
 Type=simple
-User=nobody
+User=root
 Restart=on-failure
 RestartSec=5s
-ExecStart=${FRP_PATH}/${FRP_NAME} -c ${config_path}
-LimitNOFILE=1048576
+ExecStart=$FRP_BASE_DIR/$service_name/frpc -c $FRP_BASE_DIR/$service_name/frpc.toml
+WorkingDirectory=$FRP_BASE_DIR/$service_name
+StandardOutput=append:$FRP_BASE_DIR/$service_name/frpc.log
+StandardError=append:$FRP_BASE_DIR/$service_name/frpc.log
 
 [Install]
 WantedBy=multi-user.target
 EOF
-
+    
     systemctl daemon-reload
-    systemctl enable ${FRP_NAME}
-    echo -e "${Green}✓ 系统服务创建完成${Font}"
-}
-
-# 检查是否已安装
-check_installed() {
-    if [[ -f "${FRP_PATH}/${FRP_NAME}" ]]; then
-        return 0
-    else
-        return 1
-    fi
+    log_info "已创建systemd服务: frpc-${service_name}"
 }
 
 # 安装frpc
 install_frpc() {
-    echo -e "${Green}=========================================================================${Font}"
-    echo -e "${YellowBG}                            安装 frpc                                   ${Font}"
-    echo -e "${Green}=========================================================================${Font}"
+    local arch=$(detect_arch)
+    local os=$(detect_os)
     
-    if check_installed; then
-        echo -e "${Yellow}frpc 已安装！是否重新安装？(y/n)${Font}"
-        read -p "" reinstall
-        if [[ $reinstall != "y" && $reinstall != "Y" ]]; then
-            return
-        fi
+    # 创建基础目录
+    mkdir -p "$FRP_BASE_DIR"
+    
+    # 获取版本列表
+    local versions
+    log_info "正在获取frp版本列表..."
+    if ! versions=$(get_frp_versions); then
+        log_error "无法获取版本列表，请检查网络连接"
+        return 1
     fi
     
-    check_sys
-    install_deps
+    echo
+    log_blue "可用的frp版本列表:"
+    echo "$versions" | nl -w2 -s'. '
+    echo
+    log_blue "安装选项:"
+    echo "1. 输入数字选择上述版本 (默认选择第1个版本)"
+    echo "2. 直接输入版本号 (如: v0.52.3)"
+    echo
     
-    # 获取版本信息
-    echo -e "${Blue}获取最新版本信息...${Font}"
-    local latest_version=$(get_latest_version)
-    echo -e "${Green}最新版本: ${latest_version}${Font}"
+    read -p "请选择安装方式或直接输入版本号: " version_input
     
-    # 询问版本选择
-    echo -e "${Yellow}选择安装版本:${Font}"
-    echo -e "${Blue}1. 安装最新版本 (${latest_version})${Font}"
-    echo -e "${Blue}2. 手动输入版本号${Font}"
-    read -p "请选择 [1-2]: " version_choice
+    local selected_version
     
-    case $version_choice in
-        1)
-            install_version="$latest_version"
-            ;;
-        2)
-            read -p "请输入版本号 (如: v0.58.1): " install_version
-            if [[ ! $install_version =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-                echo -e "${Red}版本号格式错误！${Font}"
-                return 1
-            fi
-            ;;
-        *)
-            echo -e "${Red}无效选择！${Font}"
+    # 检查输入是否为数字
+    if [[ "$version_input" =~ ^[0-9]+$ ]]; then
+        # 数字选择模式
+        local version_choice=${version_input:-1}
+        selected_version=$(echo "$versions" | sed -n "${version_choice}p")
+        if [[ -z "$selected_version" ]]; then
+            log_error "无效的版本选择，请输入1到$(echo "$versions" | wc -l)之间的数字"
             return 1
-            ;;
-    esac
-    
-    # 下载并安装
-    if download_frpc "$install_version"; then
-        # 创建配置文件（包含3547端口）
-        create_config "$install_version"
-        
-        # 获取配置文件路径
-        local config_ext=$(get_config_extension "$install_version")
-        local config_path="${FRP_PATH}/${FRP_NAME}.${config_ext}"
-        
-        # 创建服务
-        create_service "$config_path"
-        
-        echo -e "${Green}=========================================================================${Font}"
-        echo -e "${Green}✓ frpc 安装完成！${Font}"
-        echo -e "${Blue}配置文件: ${config_path}${Font}"
-        echo -e "${Blue}请编辑配置文件后使用以下命令启动服务:${Font}"
-        echo -e "${Yellow}  systemctl start ${FRP_NAME}${Font}"
-        echo -e "${Yellow}  systemctl status ${FRP_NAME}${Font}"
-        echo -e "${Green}✓ 已预配置连通性测试端口 3547${Font}"
-        echo -e "${Green}=========================================================================${Font}"
-    else
-        echo -e "${Red}安装失败！${Font}"
-        return 1
-    fi
-}
-
-# 更新配置
-update_config() {
-    echo -e "${Green}=========================================================================${Font}"
-    echo -e "${YellowBG}                           更新 frpc 配置                               ${Font}"
-    echo -e "${Green}=========================================================================${Font}"
-    
-    if ! check_installed; then
-        echo -e "${Red}frpc 未安装！${Font}"
-        return 1
-    fi
-    
-    local config_path=$(get_existing_config_path)
-    if [[ -z "$config_path" ]]; then
-        echo -e "${Red}配置文件不存在！${Font}"
-        return 1
-    fi
-    
-    echo -e "${Blue}当前配置文件: ${config_path}${Font}"
-    echo -e "${Yellow}请选择操作:${Font}"
-    echo -e "${Blue}1. 编辑配置文件${Font}"
-    echo -e "${Blue}2. 重新生成配置文件${Font}"
-    read -p "请选择 [1-2]: " config_choice
-    
-    case $config_choice in
-        1)
-            if command -v nano > /dev/null; then
-                nano "$config_path"
-            elif command -v vim > /dev/null; then
-                vim "$config_path"
-            else
-                echo -e "${Red}未找到文本编辑器！${Font}"
-                return 1
-            fi
-            ;;
-        2)
-            # 检测当前版本
-            local current_version=$(${FRP_PATH}/${FRP_NAME} --version 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1)
-            if [[ -z "$current_version" ]]; then
-                current_version="v0.58.1"  # 默认版本
-            fi
-            create_config "$current_version"
-            ;;
-        *)
-            echo -e "${Red}无效选择！${Font}"
-            return 1
-            ;;
-    esac
-    
-    echo -e "${Green}配置更新完成！${Font}"
-}
-
-# 更改frps服务器
-change_server() {
-    echo -e "${Green}=========================================================================${Font}"
-    echo -e "${YellowBG}                          更改 frps 服务器                              ${Font}"
-    echo -e "${Green}=========================================================================${Font}"
-    
-    if ! check_installed; then
-        echo -e "${Red}frpc 未安装！${Font}"
-        return 1
-    fi
-    
-    local config_path=$(get_existing_config_path)
-    if [[ -z "$config_path" ]]; then
-        echo -e "${Red}配置文件不存在！${Font}"
-        return 1
-    fi
-    
-    local config_ext="${config_path##*.}"
-    
-    echo -e "${Blue}当前配置文件: ${config_path} (${config_ext^^} 格式)${Font}"
-    
-    # 显示当前服务器信息
-    if [[ "$config_ext" == "toml" ]]; then
-        local current_server=$(grep '^serverAddr' "$config_path" | cut -d'"' -f2 2>/dev/null)
-        local current_port=$(grep '^serverPort' "$config_path" | cut -d'=' -f2 | tr -d ' ' 2>/dev/null)
-    else
-        local current_server=$(grep '^server_addr' "$config_path" | cut -d'=' -f2 | tr -d ' ' 2>/dev/null)
-        local current_port=$(grep '^server_port' "$config_path" | cut -d'=' -f2 | tr -d ' ' 2>/dev/null)
-    fi
-    
-    echo -e "${Yellow}当前服务器: ${current_server:-"未设置"}${Font}"
-    echo -e "${Yellow}当前端口: ${current_port:-"未设置"}${Font}"
-    
-    # 输入新的服务器信息
-    read -p "请输入新的 frps 服务器地址: " new_server
-    read -p "请输入新的 frps 服务器端口 [7000]: " new_port
-    
-    if [[ -z "$new_server" ]]; then
-        echo -e "${Red}服务器地址不能为空！${Font}"
-        return 1
-    fi
-    
-    new_port=${new_port:-7000}
-    
-    # 更新配置文件
-    if [[ "$config_ext" == "toml" ]]; then
-        sed -i "s/^serverAddr = .*/serverAddr = \"$new_server\"/" "$config_path"
-        sed -i "s/^serverPort = .*/serverPort = $new_port/" "$config_path"
-    else
-        sed -i "s/^server_addr = .*/server_addr = $new_server/" "$config_path"
-        sed -i "s/^server_port = .*/server_port = $new_port/" "$config_path"
-    fi
-    
-    echo -e "${Green}✓ 服务器配置已更新${Font}"
-    echo -e "${Blue}新服务器: $new_server:$new_port${Font}"
-    echo -e "${Yellow}请重启 frpc 服务使配置生效${Font}"
-}
-
-# 重启frpc
-restart_frpc() {
-    echo -e "${Green}=========================================================================${Font}"
-    echo -e "${YellowBG}                           重启 frpc 服务                               ${Font}"
-    echo -e "${Green}=========================================================================${Font}"
-    
-    if ! check_installed; then
-        echo -e "${Red}frpc 未安装！${Font}"
-        return 1
-    fi
-    
-    echo -e "${Blue}正在重启 frpc 服务...${Font}"
-    
-    systemctl stop ${FRP_NAME}
-    sleep 2
-    systemctl start ${FRP_NAME}
-    sleep 2
-    
-    if systemctl is-active --quiet ${FRP_NAME}; then
-        echo -e "${Green}✓ frpc 服务重启成功${Font}"
-        systemctl status ${FRP_NAME} --no-pager -l
-    else
-        echo -e "${Red}✗ frpc 服务重启失败${Font}"
-        echo -e "${Yellow}查看错误日志:${Font}"
-        journalctl -u ${FRP_NAME} --no-pager -l -n 20
-    fi
-}
-
-# 查看frpc状态
-status_frpc() {
-    echo -e "${Green}=========================================================================${Font}"
-    echo -e "${YellowBG}                           frpc 服务状态                                ${Font}"
-    echo -e "${Green}=========================================================================${Font}"
-    
-    if ! check_installed; then
-        echo -e "${Red}frpc 未安装！${Font}"
-        return 1
-    fi
-    
-    # 显示服务状态
-    echo -e "${Blue}服务状态:${Font}"
-    systemctl status ${FRP_NAME} --no-pager -l
-    
-    echo -e "\n${Blue}最近日志:${Font}"
-    journalctl -u ${FRP_NAME} --no-pager -l -n 10
-    
-    # 显示配置信息
-    local config_path=$(get_existing_config_path)
-    if [[ -n "$config_path" ]]; then
-        local config_ext="${config_path##*.}"
-        echo -e "\n${Blue}配置文件: ${config_path} (${config_ext^^} 格式)${Font}"
-        
-        if [[ "$config_ext" == "toml" ]]; then
-            local server=$(grep '^serverAddr' "$config_path" | cut -d'"' -f2 2>/dev/null)
-            local port=$(grep '^serverPort' "$config_path" | cut -d'=' -f2 | tr -d ' ' 2>/dev/null)
-        else
-            local server=$(grep '^server_addr' "$config_path" | cut -d'=' -f2 | tr -d ' ' 2>/dev/null)
-            local port=$(grep '^server_port' "$config_path" | cut -d'=' -f2 | tr -d ' ' 2>/dev/null)
         fi
-        
-        echo -e "${Yellow}服务器: ${server:-"未配置"}:${port:-"未配置"}${Font}"
-    fi
-}
-
-# 查看配置文件
-view_config() {
-    echo -e "${Green}=========================================================================${Font}"
-    echo -e "${YellowBG}                           查看 frpc 配置                               ${Font}"
-    echo -e "${Green}=========================================================================${Font}"
-    
-    if ! check_installed; then
-        echo -e "${Red}frpc 未安装！${Font}"
+    elif [[ -z "$version_input" ]]; then
+        # 默认选择第一个版本
+        selected_version=$(echo "$versions" | sed -n "1p")
+        log_info "使用默认版本: $selected_version"
+    elif [[ "$version_input" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        # 直接输入版本号模式
+        selected_version="$version_input"
+        log_info "使用指定版本: $selected_version"
+    else
+        log_error "无效的输入格式，请输入数字或版本号 (如: v0.52.3)"
         return 1
     fi
     
-    local config_path=$(get_existing_config_path)
-    if [[ -z "$config_path" ]]; then
-        echo -e "${Red}配置文件不存在！${Font}"
+    echo
+    log_info "选择的版本: $selected_version"
+    echo
+    read -p "请输入服务名称 (默认: default): " service_name
+    service_name=${service_name:-default}
+    
+    # 检查服务是否已存在
+    if [[ -d "$FRP_BASE_DIR/$service_name" ]]; then
+        log_error "服务 '$service_name' 已存在"
         return 1
     fi
     
-    local config_ext="${config_path##*.}"
-    echo -e "${Blue}配置文件: ${config_path} (${config_ext^^} 格式)${Font}"
-    echo -e "${Green}=========================================================================${Font}"
+    # 确认安装信息
+    echo
+    log_blue "安装确认信息:"
+    echo "版本: $selected_version"
+    echo "服务名称: $service_name"
+    echo "系统架构: $arch"
+    echo "安装路径: $FRP_BASE_DIR/$service_name"
+    echo "服务名: frpc-$service_name"
+    echo
     
-    cat "$config_path"
-    
-    echo -e "${Green}=========================================================================${Font}"
-}
-
-# 连通性测试功能（优化版）
-connectivity_test() {
-    echo -e "${Green}=========================================================================${Font}"
-    echo -e "${YellowBG}                         连通性测试                                     ${Font}"
-    echo -e "${Green}=========================================================================${Font}"
-    
-    # 检查frpc是否已安装
-    if ! check_installed; then
-        echo -e "${Red}frpc 未安装，请先安装！${Font}"
-        echo -n -e "${Yellow}按任意键返回主菜单...${Font}"
-        read -n 1
-        return
-    fi
-    
-    # 检查frpc服务是否运行
-    if ! systemctl is-active --quiet ${FRP_NAME}; then
-        echo -e "${Red}frpc 服务未运行，请先启动服务！${Font}"
-        echo -e "${Yellow}可以使用选项 4 重启服务${Font}"
-        echo -n -e "${Yellow}按任意键返回主菜单...${Font}"
-        read -n 1
-        return
-    fi
-    
-    # 获取配置文件路径
-    CONFIG_PATH=$(get_existing_config_path)
-    if [ -z "$CONFIG_PATH" ]; then
-        echo -e "${Red}配置文件不存在！${Font}"
-        echo -n -e "${Yellow}按任意键返回主菜单...${Font}"
-        read -n 1
-        return
-    fi
-    
-    CONFIG_EXT="${CONFIG_PATH##*.}"
-    echo -e "${Blue}使用配置文件: ${CONFIG_PATH} (${CONFIG_EXT^^} 格式)${Font}"
-    
-    # 获取frps服务器地址
-    if [ "$CONFIG_EXT" = "toml" ]; then
-        FRPS_SERVER=$(grep '^serverAddr' "$CONFIG_PATH" | cut -d'"' -f2 2>/dev/null)
-        if [ -z "$FRPS_SERVER" ]; then
-            FRPS_SERVER=$(grep '^serverAddr' "$CONFIG_PATH" | cut -d'=' -f2 | tr -d ' "' 2>/dev/null)
-        fi
-    else
-        FRPS_SERVER=$(grep '^server_addr' "$CONFIG_PATH" | cut -d'=' -f2 | tr -d ' ' 2>/dev/null)
-    fi
-    
-    if [ -z "$FRPS_SERVER" ]; then
-        echo -e "${Red}无法获取 frps 服务器地址！请检查配置文件${Font}"
-        echo -n -e "${Yellow}按任意键返回主菜单...${Font}"
-        read -n 1
-        return
-    fi
-    
-    echo -e "${Blue}FRPS 服务器地址: ${Yellow}$FRPS_SERVER${Font}"
-    
-    # 检查配置文件中是否包含3547端口配置
-    if grep -q "3547" "$CONFIG_PATH"; then
-        echo -e "${Green}✓ 检测到配置文件已包含端口 3547 的代理配置${Font}"
-    else
-        echo -e "${Yellow}⚠ 配置文件中未找到端口 3547 的配置${Font}"
-        echo -e "${Yellow}建议使用选项 1 重新安装 frpc 以获得完整的测试功能${Font}"
-    fi
-    
-    SOCKS5_PORT=3547
-    
-    # 启动本地SOCKS5代理测试
-    echo -e "${Blue}正在启动本地 SOCKS5 代理测试 (端口 ${SOCKS5_PORT})...${Font}"
-    
-    # 使用 ssh 创建本地 SOCKS5 代理进行测试
-    timeout 3 ssh -o ConnectTimeout=3 -o StrictHostKeyChecking=no -D ${SOCKS5_PORT} -N localhost >/dev/null 2>&1 &
-    PROXY_PID=$!
-    
-    # 等待代理启动
-    echo -e "${Blue}等待本地代理启动...${Font}"
-    sleep 2
-    
-    # 测试连通性
-    echo -e "${Blue}正在测试连通性...${Font}"
-    echo -e "${Yellow}测试目标: ${FRPS_SERVER}:${SOCKS5_PORT} -> https://www.google.com/${Font}"
-    
-    # 执行连通性测试
-    CURL_OUTPUT=$(timeout 20 curl --connect-timeout 10 --max-time 15 --socks5 "${FRPS_SERVER}:${SOCKS5_PORT}" -s -w "HTTP状态码: %{http_code}\n连接时间: %{time_connect}s\n总耗时: %{time_total}s\n" https://www.google.com/ 2>&1)
-    CURL_EXIT_CODE=$?
-    
-    echo -e "${Green}=========================================================================${Font}"
-    echo -e "${Blue}连通性测试结果:${Font}"
-    echo -e "${Green}=========================================================================${Font}"
-    
-    if [ $CURL_EXIT_CODE -eq 0 ]; then
-        if echo "$CURL_OUTPUT" | grep -q "google\|200\|301\|302"; then
-            echo -e "${Green}✓ 连通性测试成功！${Font}"
-            echo -e "${Green}✓ frpc 与 frps 服务器连接正常${Font}"
-            echo -e "${Green}✓ 可以正常通过代理访问外部网站${Font}"
-            echo -e "${Blue}详细信息:${Font}"
-            echo "$CURL_OUTPUT" | tail -3
-        else
-            echo -e "${Yellow}⚠ 部分成功 - 连接建立但响应异常${Font}"
-            echo -e "${Yellow}响应内容: ${Font}"
-            echo "$CURL_OUTPUT" | head -5
-        fi
-    else
-        echo -e "${Red}✗ 连通性测试失败！${Font}"
-        case $CURL_EXIT_CODE in
-            7)
-                echo -e "${Red}错误: 无法连接到代理服务器${Font}"
-                echo -e "${Yellow}可能原因:${Font}"
-                echo -e "${Yellow}  1. frps 服务器未配置端口 3547${Font}"
-                echo -e "${Yellow}  2. frpc 服务未正常连接到 frps${Font}"
-                echo -e "${Yellow}  3. 网络防火墙阻止连接${Font}"
-                ;;
-            28|124)
-                echo -e "${Red}错误: 连接超时${Font}"
-                echo -e "${Yellow}可能原因: 网络延迟过高或服务器无响应${Font}"
-                ;;
-            56)
-                echo -e "${Red}错误: 网络连接中断${Font}"
-                ;;
-            *)
-                echo -e "${Red}错误代码: $CURL_EXIT_CODE${Font}"
-                echo -e "${Red}错误信息: ${Font}"
-                echo "$CURL_OUTPUT"
-                ;;
-        esac
-    fi
-    
-    echo -e "${Green}=========================================================================${Font}"
-    
-    # 清理本地代理进程
-    echo -e "${Blue}正在清理测试进程...${Font}"
-    
-    if [ ! -z "$PROXY_PID" ]; then
-        kill $PROXY_PID 2>/dev/null
-        wait $PROXY_PID 2>/dev/null
-    fi
-    
-    # 清理可能残留的进程
-    pkill -f "ssh.*-D.*${SOCKS5_PORT}" 2>/dev/null
-    
-    echo -e "${Green}清理完成！${Font}"
-    echo -n -e "${Yellow}按任意键返回主菜单...${Font}"
-    read -n 1
-}
-
-# 卸载frpc
-uninstall_frpc() {
-    echo -e "${Green}=========================================================================${Font}"
-    echo -e "${YellowBG}                           卸载 frpc                                   ${Font}"
-    echo -e "${Green}=========================================================================${Font}"
-    
-    if ! check_installed; then
-        echo -e "${Yellow}frpc 未安装！${Font}"
+    read -p "确认开始安装? (Y/n): " install_confirm
+    if [[ "$install_confirm" =~ ^[Nn]$ ]]; then
+        log_info "用户取消安装"
         return 0
     fi
     
-    echo -e "${Red}警告: 此操作将完全删除 frpc 及其配置文件！${Font}"
-    read -p "确认卸载 frpc？(y/n): " confirm
+    log_info "用户确认安装，开始执行安装流程..."
+    log_info "安装参数: 版本=$selected_version, 架构=$arch, 系统=$os"
     
-    if [[ $confirm != "y" && $confirm != "Y" ]]; then
-        echo -e "${Yellow}取消卸载${Font}"
+    # 环境检查
+    log_info "环境检查..."
+    
+    # 检查必需工具
+    local missing_tools=()
+    for tool in wget curl tar; do
+        if ! command -v $tool > /dev/null 2>&1; then
+            missing_tools+=("$tool")
+        fi
+    done
+    
+    if [[ ${#missing_tools[@]} -gt 0 ]]; then
+        log_error "缺少必需工具: ${missing_tools[*]}"
+        log_error "请先安装: apt-get install ${missing_tools[*]}"
+        return 1
+    fi
+    log_info "✓ 必需工具检查完成"
+    
+    # 下载并解压
+    log_info "步骤1: 下载frp程序..."
+    local temp_extract_dir
+    if ! temp_extract_dir=$(download_frp "$selected_version" "$arch" "$os"); then
+        log_error "下载步骤失败，安装终止"
+        return 1
+    fi
+    
+    log_info "下载完成，临时目录: $temp_extract_dir"
+    
+    # 创建服务目录
+    log_info "步骤2: 创建服务目录..."
+    local service_dir="$FRP_BASE_DIR/$service_name"
+    if ! mkdir -p "$service_dir"; then
+        log_error "无法创建服务目录: $service_dir"
+        rm -rf "$(dirname "$temp_extract_dir")"
+        return 1
+    fi
+    log_info "服务目录创建成功: $service_dir"
+    log_info "目录权限: $(ls -ld "$service_dir")"
+    
+    # 复制文件
+    log_info "步骤3: 复制frpc可执行文件..."
+    if ! cp "$temp_extract_dir/frpc" "$service_dir/"; then
+        log_error "复制frpc文件失败"
+        rm -rf "$(dirname "$temp_extract_dir")"
+        return 1
+    fi
+    
+    if ! chmod +x "$service_dir/frpc"; then
+        log_error "设置frpc文件权限失败"
+        rm -rf "$(dirname "$temp_extract_dir")"
+        return 1
+    fi
+    log_info "frpc文件复制完成"
+    
+    # 清理临时文件
+    log_info "步骤4: 清理临时文件..."
+    rm -rf "$(dirname "$temp_extract_dir")"
+    
+    # 创建配置文件
+    log_info "步骤5: 创建配置文件..."
+    create_default_config "$service_name"
+    
+    # 创建systemd服务
+    log_info "步骤6: 创建systemd服务..."
+    create_systemd_service "$service_name"
+    
+    # 启动服务
+    log_info "步骤7: 启动服务..."
+    if ! systemctl enable "frpc-${service_name}"; then
+        log_error "启用服务失败"
+        return 1
+    fi
+    
+    if ! systemctl start "frpc-${service_name}"; then
+        log_error "启动服务失败"
+        return 1
+    fi
+    
+    log_info "frpc服务 '$service_name' 安装完成！"
+    log_info "配置文件位置: $service_dir/frpc.toml"
+    log_info "日志文件位置: $service_dir/frpc.log"
+    log_info "服务名称: frpc-${service_name}"
+    
+    echo
+    log_warn "请记得修改配置文件中的服务器地址和端口！"
+}
+
+# 获取所有frpc服务列表
+get_frpc_services() {
+    if [[ ! -d "$FRP_BASE_DIR" ]]; then
+        return 1
+    fi
+    
+    find "$FRP_BASE_DIR" -maxdepth 1 -type d -not -path "$FRP_BASE_DIR" -exec basename {} \;
+}
+
+
+# 选择服务
+select_service() {
+    local services
+    services=$(get_frpc_services)
+    
+    echo >&2
+    log_blue "已安装的frpc服务:" >&2
+    echo "$services" | nl -w2 -s'. ' >&2
+    echo >&2
+    
+    read -p "请选择服务 (输入数字): " service_choice
+    
+    local selected_service=$(echo "$services" | sed -n "${service_choice}p")
+    if [[ -z "$selected_service" ]]; 键，然后
+        log_error "无效的服务选择" >&2
+        return 1
+    fi
+    
+    echo "$selected_service"
+}
+
+# 重启服务
+restart_service() {
+    local service_name
+    if ! service_name=$(select_service); then
+        return 1
+    fi
+    
+    log_info "正在重启服务 frpc-${service_name}..."
+    systemctl restart "frpc-${service_name}"
+    
+    log_info "等待服务启动..."
+    sleep 3
+    
+    log_info "服务状态:"
+    systemctl status "frpc-${service_name}" --no-pager -l
+    
+    echo
+    log_info "最近的日志:"
+    tail -n 20 "$FRP_BASE_DIR/$service_name/frpc.log" 2>/dev/null || log_warn "无法读取日志文件"
+}
+
+# 编辑配置
+edit_config() {
+    local service_name
+    if ! service_name=$(select_service); then
+        return 1
+    fi
+    
+    log_info "选择的服务名称: '$service_name'"
+    local config_file="$FRP_BASE_DIR/$service_name/frpc.toml"
+    log_info "配置文件路径: '$config_file'"
+    
+    if [[ ! -f "$config_file" ]]; then
+        log_error "配置文件不存在: $config_file"
+        return 1
+    fi
+    
+    log_info "正在编辑配置文件: $config_file"
+    nano "$config_file"
+    
+    read -p "是否重启服务使配置生效? (y/N): " restart_choice
+    if [[ "$restart_choice" =~ ^[Yy]$ ]]; then
+        systemctl restart "frpc-${service_name}"
+        log_info "服务已重启"
+    fi
+}
+
+# 快速更改服务器地址
+change_server() {
+    local service_name
+    if ! service_name=$(select_service); then
+        return 1
+    fi
+    
+    log_info "选择的服务名称: '$service_name'"
+    local config_file="$FRP_BASE_DIR/$service_name/frpc.toml"
+    log_info "配置文件路径: '$config_file'"
+    
+    if [[ ! -f "$config_file" ]]; then
+        log_error "配置文件不存在: $config_file"
+        return 1
+    fi
+    
+    # 显示当前服务器地址
+    local current_server=$(grep -o 'serverAddr = "[^"]*"' "$config_file" 2>/dev/null | sed 's/serverAddr = "//g' | sed 's/"//g' || echo "未设置")
+    log_info "当前服务器地址: $current_server"
+    
+    echo
+    read -p "请输入新的服务器地址: " new_server
+    
+    if [[ -z "$new_server" ]]; then
+        log_error "服务器地址不能为空"
+        return 1
+    fi
+    
+    # 更新配置文件
+    sed -i "s/serverAddr = \".*\"/serverAddr = \"$new_server\"/" "$config_file"
+    
+    log_info "服务器地址已更新为: $new_server"
+    
+    read -p "是否重启服务使配置生效? (y/N): " restart_choice
+    if [[ "$restart_choice" =~ ^[Yy]$ ]]; then
+        systemctl restart "frpc-${service_name}"
+        log_info "服务已重启"
+    fi
+}
+
+# 查看配置
+view_config() {
+    local service_name
+    if ! service_name=$(select_service); then
+        return 1
+    fi
+    
+    log_info "选择的服务名称: '$service_name'"
+    local config_file="$FRP_BASE_DIR/$service_name/frpc.toml"
+    log_info "配置文件路径: '$config_file'"
+    
+    if [[ ! -f "$config_file" ]]; then
+        log_error "配置文件不存在: $config_file"
+        return 1
+    fi
+    
+    echo
+    log_blue "配置文件内容 ($config_file):"
+    echo "----------------------------------------"
+    cat "$config_file"
+    echo "----------------------------------------"
+}
+
+# 查看服务状态
+view_status() {
+    local service_name
+    if ! service_name=$(select_service); then
+        return 1
+    fi
+    
+    echo
+    log_blue "服务状态 (frpc-${service_name}):"
+    systemctl status "frpc-${service_name}" --no-pager -l
+    
+    echo
+    log_blue "最近日志:"
+    tail -n 30 "$FRP_BASE_DIR/$service_name/frpc.log" 2>/dev/null || log_warn "无法读取日志文件"
+}
+
+# 卸载服务
+uninstall_service() {
+    local service_name
+    if ! service_name=$(select_service); then
+        return 1
+    fi
+    
+    echo
+    log_warn "即将卸载服务: frpc-${service_name}"
+    read -p "确定要卸载吗? 此操作不可恢复 (y/N): " confirm
+    
+    if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+        log_info "取消卸载"
         return 0
     fi
     
     # 停止并禁用服务
-    echo -e "${Blue}停止 frpc 服务...${Font}"
-    systemctl stop ${FRP_NAME} 2>/dev/null
-    systemctl disable ${FRP_NAME} 2>/dev/null
+    systemctl stop "frpc-${service_name}" 2>/dev/null || true
+    systemctl disable "frpc-${service_name}" 2>/dev/null || true
     
-    # 删除服务文件
-    rm -f /etc/systemd/system/${FRP_NAME}.service
+    # 删除systemd服务文件
+    rm -f "/etc/systemd/system/frpc-${service_name}.service"
     systemctl daemon-reload
     
-    # 删除程序文件
-    rm -rf ${FRP_PATH}
+    # 删除服务目录
+    rm -rf "$FRP_BASE_DIR/$service_name"
     
-    echo -e "${Green}✓ frpc 卸载完成${Font}"
+    log_info "服务 frpc-${service_name} 已成功卸载"
 }
 
-# 安装快捷命令
-install_shortcut() {
-    echo -e "${Green}=========================================================================${Font}"
-    echo -e "${YellowBG}                          安装快捷命令                                  ${Font}"
-    echo -e "${Green}=========================================================================${Font}"
+# 安装全局命令
+install_global_command() {
+    if [[ -f "$GLOBAL_COMMAND_PATH" ]]; then
+        log_warn "全局命令已存在"
+        return 0
+    fi
     
-    local script_path="$(realpath "$0")"
-    local shortcut_path="/usr/local/bin/frp"
-    
-    # 创建快捷命令脚本
-    cat > "$shortcut_path" <<EOF
+    # 创建全局命令脚本
+    cat > "$GLOBAL_COMMAND_PATH" << 'EOF'
 #!/bin/bash
-# frpc 管理快捷命令
-exec "$script_path" "\$@"
+# frp全局命令快捷方式
+
+SCRIPT_PATH="/usr/local/bin/frpc_installer.sh"
+
+if [[ -f "$SCRIPT_PATH" ]]; then
+    "$SCRIPT_PATH" "$@"
+else
+    echo "错误: 找不到frpc安装脚本"
+    exit 1
+fi
 EOF
     
-    chmod +x "$shortcut_path"
+    chmod +x "$GLOBAL_COMMAND_PATH"
     
-    echo -e "${Green}✓ 快捷命令安装完成${Font}"
-    echo -e "${Blue}现在可以使用 'frp' 命令来管理 frpc${Font}"
-    echo -e "${Yellow}示例: frp        # 显示菜单${Font}"
+    # 复制当前脚本到系统路径
+    cp "$0" "/usr/local/bin/frpc_installer.sh"
+    chmod +x "/usr/local/bin/frpc_installer.sh"
+    
+    log_info "全局命令已安装，现在可以在任何位置使用 'frp' 命令"
 }
 
-# 卸载快捷命令
-uninstall_shortcut() {
-    echo -e "${Green}=========================================================================${Font}"
-    echo -e "${YellowBG}                          卸载快捷命令                                  ${Font}"
-    echo -e "${Green}=========================================================================${Font}"
-    
-    if [[ -f "/usr/local/bin/frp" ]]; then
-        rm -f "/usr/local/bin/frp"
-        echo -e "${Green}✓ 快捷命令卸载完成${Font}"
-    else
-        echo -e "${Yellow}快捷命令未安装${Font}"
+# 移除全局命令
+remove_global_command() {
+    if [[ ! -f "$GLOBAL_COMMAND_PATH" ]]; then
+        log_warn "全局命令未安装"
+        return 0
     fi
+    
+    rm -f "$GLOBAL_COMMAND_PATH"
+    rm -f "/usr/local/bin/frpc_installer.sh"
+    
+    log_info "全局命令已移除"
 }
 
-# 显示菜单
+# 显示主菜单
 show_menu() {
     clear
-    echo -e "${Green}=========================================================================${Font}"
-    echo -e "${GreenBG}                         frpc 一键管理脚本                              ${Font}"
-    echo -e "${Green}=========================================================================${Font}"
-    echo -e "${Green}                        优化版 - 支持连通性测试                         ${Font}"
-    echo -e "${Blue}  系统: $(cat /etc/os-release | grep PRETTY_NAME | cut -d'"' -f2) ${Font}"
-    echo -e "${Blue}  架构: $(uname -m) ${Font}"
-    echo -e "${Green}=========================================================================${Font}"
-    echo -e "${Green}  1. 安装 frpc              6. 查看 frpc 配置${Font}"
-    echo -e "${Green}  2. 更新 frpc 配置         7. 连通性测试 ${YellowBG}[新功能]${Font}"
-    echo -e "${Green}  3. 更改 frps 服务器       8. 卸载 frpc${Font}"
-    echo -e "${Green}  4. 重启 frpc              9. 安装快捷命令${Font}"
-    echo -e "${Green}  5. 查看 frpc 状态        10. 卸载快捷命令${Font}"
-    echo -e "${Green}=========================================================================${Font}"
-    echo -e "${Green}  0. 退出脚本${Font}"
-    echo -e "${Green}=========================================================================${Font}"
+    echo -e "${BLUE}"
+    echo "================================================================"
+    echo "                    frpc 一键安装管理脚本"
+    echo "================================================================"
+    echo -e "${NC}"
+    echo "1. 安装 frpc 服务"
+    echo "2. 重启服务"
+    echo "3. 配置管理"
+    echo "   3.1 编辑配置"
+    echo "   3.2 更改服务器地址"
+    echo "   3.3 查看配置"
+    echo "4. 查看服务状态"
+    echo "5. 卸载服务"
+    echo "6. 其他功能"
+    echo "   6.1 安装全局命令"
+    echo "   6.2 移除全局命令"
+    echo "0. 退出"
+    echo
+}
+
+# 配置管理子菜单
+config_menu() {
     
-    # 显示当前状态
-    if check_installed; then
-        local config_path=$(get_existing_config_path)
-        if [[ -n "$config_path" ]]; then
-            local config_ext="${config_path##*.}"
-            echo -e "${Blue}  状态: 已安装 (${config_ext^^} 格式)${Font}"
-            
-            if systemctl is-active --quiet ${FRP_NAME}; then
-                echo -e "${Green}  服务: 运行中 ✓${Font}"
-            else
-                echo -e "${Red}  服务: 已停止 ✗${Font}"
-            fi
-            
-            # 检查是否包含测试端口
-            if grep -q "3547" "$config_path" 2>/dev/null; then
-                echo -e "${Green}  测试: 支持连通性测试 ✓${Font}"
-            else
-                echo -e "${Yellow}  测试: 建议重新安装以支持连通性测试${Font}"
-            fi
-        else
-            echo -e "${Yellow}  状态: 已安装但配置文件缺失${Font}"
-        fi
-    else
-        echo -e "${Red}  状态: 未安装${Font}"
-    fi
-    
-    echo -e "${Green}=========================================================================${Font}"
+    while true; do
+        clear
+        echo -e "${BLUE}配置管理${NC}"
+        echo "1. 编辑配置"
+        echo "2. 更改服务器地址"
+        echo "3. 查看配置"
+        echo "0. 返回主菜单"
+        echo
+        
+        read -p "请选择操作: " config_choice
+        
+        case $config_choice in
+            1)
+                edit_config
+                read -p "按回车键继续..."
+                ;;
+            2)
+                change_server
+                read -p "按回车键继续..."
+                ;;
+            3)
+                view_config
+                read -p "按回车键继续..."
+                ;;
+            0)
+                break
+                ;;
+            *)
+                log_error "无效选择，请重新输入"
+                sleep 2
+                ;;
+        esac
+    done
+}
+
+# 其他功能子菜单
+other_menu() {
+    while true; do
+        clear
+        echo -e "${BLUE}其他功能${NC}"
+        echo "1. 安装全局命令"
+        echo "2. 移除全局命令"
+        echo "0. 返回主菜单"
+        echo
+        
+        read -p "请选择操作: " other_choice
+        
+        case $other_choice in
+            1)
+                install_global_command
+                read -p "按回车键继续..."
+                ;;
+            2)
+                remove_global_command
+                read -p "按回车键继续..."
+                ;;
+            0)
+                break
+                ;;
+            *)
+                log_error "无效选择，请重新输入"
+                sleep 2
+                ;;
+        esac
+    done
 }
 
 # 主函数
 main() {
-    # 检查root权限
-    if [[ $EUID -ne 0 ]]; then
-        echo -e "${Red}请使用 root 权限运行此脚本！${Font}"
-        echo -e "${Yellow}sudo $0${Font}"
-        exit 1
+    check_root
+    
+    # 安装必要的依赖
+    if ! command -v wget &> /dev/null; then
+        log_info "正在安装wget..."
+        apt-get update && apt-get install -y wget
     fi
     
-    # 如果有参数，直接执行对应功能
-    if [[ $# -gt 0 ]]; then
-        case $1 in
-            install|1) install_frpc ;;
-            config|2) update_config ;;
-            server|3) change_server ;;
-            restart|4) restart_frpc ;;
-            status|5) status_frpc ;;
-            view|6) view_config ;;
-            test|7) connectivity_test ;;
-            uninstall|8) uninstall_frpc ;;
-            shortcut|9) install_shortcut ;;
-            unshortcut|10) uninstall_shortcut ;;
-            *) echo -e "${Red}未知参数: $1${Font}" ;;
-        esac
-        exit 0
+    if ! command -v curl &> /dev/null; then
+        log_info "正在安装curl..."
+        apt-get update && apt-get install -y curl
     fi
     
-    # 交互式菜单
+    if ! command -v nano &> /dev/null; then
+        log_info "正在安装nano..."
+        apt-get update && apt-get install -y nano
+    fi
+    
     while true; do
         show_menu
-        read -p "请选择操作 [0-10]: " choice
+        read -p "请选择操作: " choice
         
         case $choice in
-            1) install_frpc ;;
-            2) update_config ;;
-            3) change_server ;;
-            4) restart_frpc ;;
-            5) status_frpc ;;
-            6) view_config ;;
-            7) connectivity_test ;;
-            8) uninstall_frpc ;;
-            9) install_shortcut ;;
-            10) uninstall_shortcut ;;
-            0) 
-                echo -e "${Green}感谢使用 frpc 管理脚本！${Font}"
-                exit 0 
+            1)
+                install_frpc
+                read -p "按回车键继续..."
+                ;;
+            2)
+                local services
+                if services=$(get_frpc_services) && [[ -n "$services" ]]; then
+                    restart_service
+                    read -p "按回车键继续..."
+                else
+                    log_error "没有找到已安装的frpc服务"
+                    log_info "请先使用选项1安装frpc服务"
+                    read -p "按回车键继续..."
+                fi
+                ;;
+            3)
+                local services
+                if services=$(get_frpc_services) && [[ -n "$services" ]]; then
+                    config_menu
+                else
+                    log_error "没有找到已安装的frpc服务"
+                    log_info "请先使用选项1安装frpc服务"
+                    read -p "按回车键继续..."
+                fi
+                ;;
+            4)
+                local services
+                if services=$(get_frpc_services) && [[ -n "$services" ]]; then
+                    view_status
+                    read -p "按回车键继续..."
+                else
+                    log_error "没有找到已安装的frpc服务"
+                    log_info "请先使用选项1安装frpc服务"
+                    read -p "按回车键继续..."
+                fi
+                ;;
+            5)
+                local services
+                if services=$(get_frpc_services) && [[ -n "$services" ]]; then
+                    uninstall_service
+                    read -p "按回车键继续..."
+                else
+                    log_error "没有找到已安装的frpc服务"
+                    log_info "请先使用选项1安装frpc服务"
+                    read -p "按回车键继续..."
+                fi
+                ;;
+            6)
+                other_menu
+                ;;
+            0)
+                log_info "感谢使用，再见！"
+                exit 0
                 ;;
             *)
-                echo -e "${Red}无效选择，请重新输入！${Font}"
+                log_error "无效选择，请重新输入"
                 sleep 2
                 ;;
         esac
-        
-        if [[ $choice != "7" ]]; then  # 连通性测试有自己的暂停
-            echo -n -e "${Yellow}按任意键继续...${Font}"
-            read -n 1
-        fi
     done
 }
 
-# 脚本入口
-main "$@"
+# 如果脚本被直接执行，运行主函数
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi
