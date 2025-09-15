@@ -419,7 +419,7 @@ select_service() {
     read -p "请选择服务 (输入数字): " service_choice
     
     local selected_service=$(echo "$services" | sed -n "${service_choice}p")
-    if [[ -z "$selected_service" ]]; 键，然后
+    if [[ -z "$selected_service" ]]; then
         log_error "无效的服务选择" >&2
         return 1
     fi
